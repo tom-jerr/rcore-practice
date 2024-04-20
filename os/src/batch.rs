@@ -11,7 +11,9 @@ const KERNEL_STACK_SIZE: usize = 4096 * 2;
 const MAX_APP_NUM: usize = 16;
 const APP_BASE_ADDRESS: usize = 0x80400000;
 const APP_SIZE_LIMIT: usize = 0x20000;
-
+// ch2 add begin
+const SYSCALL_NUM: usize = 2;
+// ch2 add end
 #[repr(align(4096))]
 struct KernelStack {
     data: [u8; KERNEL_STACK_SIZE],
@@ -47,14 +49,44 @@ impl UserStack {
         self.data.as_ptr() as usize + USER_STACK_SIZE
     }
 }
-
+/**
+ * AppManager
+ */
 struct AppManager {
     num_app: usize,
     current_app: usize,
     app_start: [usize; MAX_APP_NUM + 1],
+    // ch2 add begin
+    app_runtime: [u64; MAX_APP_NUM],
+    // ch2 add end
+}
+// ch2 add begin
+/**
+ * syscall num
+ */
+pub struct SyscallNum {
+    num: [usize; SYSCALL_NUM],
 }
 
+impl SyscallNum {
+    /**
+     * get syscall num
+     */
+    pub fn get_syscall_num(&self, syscall_id: usize) -> usize {
+        self.num[syscall_id]
+    }
+    /**
+     * inc syscall num
+     */
+    pub fn inc_syscall_num(&mut self, syscall_id: usize) {
+        self.num[syscall_id] += 1;
+    }
+}
+// ch2 add end
 impl AppManager {
+    /**
+     * print app info
+     */
     pub fn print_app_info(&self) {
         println!("[kernel] num_app = {}", self.num_app);
         for i in 0..self.num_app {
@@ -89,17 +121,36 @@ impl AppManager {
         // See also: riscv non-priv spec chapter 3, 'Zifencei' extension.
         asm!("fence.i");
     }
-
+    /**
+     * get current app
+     */
     pub fn get_current_app(&self) -> usize {
         self.current_app
     }
-
+    /**
+     * move to next app
+     */
     pub fn move_to_next_app(&mut self) {
         self.current_app += 1;
+    }
+    /**
+     * time reg set app runtime
+     */
+    pub fn set_app_runtime(&mut self, app_id: usize, runtime: u64) {
+        self.app_runtime[app_id] = runtime;
+    }
+    /**
+     * get app runtime
+     */
+    pub fn get_app_runtime(&self, app_id: usize) -> u64 {
+        self.app_runtime[app_id]
     }
 }
 
 lazy_static! {
+    /**
+     * syscall use app manager
+     */
     static ref APP_MANAGER: UPSafeCell<AppManager> = unsafe {
         UPSafeCell::new({
             extern "C" {
@@ -115,9 +166,25 @@ lazy_static! {
                 num_app,
                 current_app: 0,
                 app_start,
+                // ch2 add begin
+                app_runtime: [0; MAX_APP_NUM],
+                // ch2 add end
             }
         })
     };
+
+    // ch2 add begin
+    /**
+     * syscall use syscall num
+     */
+    pub static ref NUM: UPSafeCell<SyscallNum> = unsafe {
+        UPSafeCell::new({
+            SyscallNum {
+                num: [0; SYSCALL_NUM],
+            }
+        })
+    };
+    // ch2 add end
 }
 
 /// init batch subsystem
@@ -144,6 +211,35 @@ pub fn run_next_app() -> ! {
     extern "C" {
         fn __restore(cx_addr: usize);
     }
+    // ch2 add begin
+    let time: u64;
+    unsafe {
+        asm!("rdtime {0}", out(reg) time);
+    }
+    if current_app > 0 {
+        let runtime = time - APP_MANAGER.exclusive_access().app_runtime[current_app - 1];
+        APP_MANAGER
+            .exclusive_access()
+            .set_app_runtime(current_app - 1, runtime);
+        println!(
+            "[kernel] app_{} runs {} cycles",
+            current_app - 1,
+            APP_MANAGER
+                .exclusive_access()
+                .get_app_runtime(current_app - 1)
+        );
+    }
+    if current_app == APP_MANAGER.exclusive_access().num_app - 1 || current_app == 0 {
+        println!(
+            "sys_write num: {}",
+            NUM.exclusive_access().get_syscall_num(0)
+        );
+        println!(
+            "sys_exit num: {}",
+            NUM.exclusive_access().get_syscall_num(1)
+        );
+    }
+    // ch2 add end
     unsafe {
         __restore(KERNEL_STACK.push_context(TrapContext::app_init_context(
             APP_BASE_ADDRESS,

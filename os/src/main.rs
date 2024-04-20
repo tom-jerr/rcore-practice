@@ -15,7 +15,7 @@
 //! userspace.
 
 #![deny(missing_docs)]
-#![deny(warnings)]
+// #![deny(warnings)]
 #![no_std]
 #![no_main]
 #![feature(panic_info_message)]
@@ -30,6 +30,9 @@ mod lang_items;
 mod logging;
 mod sbi;
 mod sync;
+// ch2 add begin
+mod stack_trace;
+// ch2 add end
 pub mod syscall;
 pub mod trap;
 
@@ -84,6 +87,7 @@ pub fn rust_main() -> ! {
         boot_stack_top as usize, boot_stack_lower_bound as usize
     );
     error!("[kernel] .bss [{:#x}, {:#x})", sbss as usize, ebss as usize);
+    // panic!("Reachable in rust_main");
     trap::init();
     batch::init();
     batch::run_next_app();
