@@ -82,6 +82,29 @@ impl SyscallNum {
         self.num[syscall_id] += 1;
     }
 }
+
+/**
+ * Reliable address of program
+ */
+pub struct ReliableAddr {
+    start: usize,
+    end: usize,
+}
+
+impl ReliableAddr {
+    /**
+     * get reliable start addr
+     */
+    pub fn get_reliable_start(&self) -> usize {
+        self.start
+    }
+    /**
+     * get reliable end addr
+     */
+    pub fn get_reliable_end(&self) -> usize {
+        self.end
+    }
+}
 // ch2 add end
 impl AppManager {
     /**
@@ -184,6 +207,18 @@ lazy_static! {
             }
         })
     };
+
+    /**
+     * reliable addr init
+     */
+    pub static ref RE_ADDR:UPSafeCell<ReliableAddr> = unsafe {
+        UPSafeCell::new({
+            ReliableAddr {
+                start: APP_BASE_ADDRESS,
+                end: APP_BASE_ADDRESS + APP_SIZE_LIMIT,
+            }
+        })
+    };
     // ch2 add end
 }
 
@@ -201,6 +236,12 @@ pub fn print_app_info() {
 pub fn run_next_app() -> ! {
     let mut app_manager = APP_MANAGER.exclusive_access();
     let current_app = app_manager.get_current_app();
+    // ch2 add begin
+    let mut reliable_addr = RE_ADDR.exclusive_access();
+    reliable_addr.start = app_manager.app_start[current_app].clone();
+    reliable_addr.end = app_manager.app_start[current_app + 1].clone();
+    drop(reliable_addr);
+    // ch2 add end
     unsafe {
         app_manager.load_app(current_app);
     }
@@ -212,6 +253,7 @@ pub fn run_next_app() -> ! {
         fn __restore(cx_addr: usize);
     }
     // ch2 add begin
+
     let time: u64;
     unsafe {
         asm!("rdtime {0}", out(reg) time);

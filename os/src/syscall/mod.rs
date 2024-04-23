@@ -17,6 +17,7 @@ mod fs;
 mod process;
 
 use crate::batch::NUM;
+use crate::batch::RE_ADDR;
 use fs::*;
 use process::*;
 
@@ -24,6 +25,17 @@ use process::*;
 pub fn syscall(syscall_id: usize, args: [usize; 3]) -> isize {
     match syscall_id {
         SYSCALL_WRITE => {
+            let start_addr = RE_ADDR.exclusive_access().get_reliable_start();
+            let end_addr = RE_ADDR.exclusive_access().get_reliable_end();
+            if args[1] < start_addr {
+                return -1;
+            }
+            if args[1] >= end_addr {
+                return -1;
+            }
+            if args[1] + args[2] >= end_addr {
+                return -1;
+            }
             let ret = sys_write(args[0], args[1] as *const u8, args[2]);
             NUM.exclusive_access().inc_syscall_num(0);
             ret
